@@ -25,10 +25,17 @@ class IndiaEconomicFactorsTracker:
             'More than a Year': (12, 24)
         }
         
+        # API keys from Streamlit secrets (secure method)
+        try:
+            self.alpha_vantage_key = st.secrets["ALPHA_VANTAGE_API_KEY"]
+            self.fred_api_key = st.secrets["FRED_API_KEY"]
+        except KeyError:
+            st.warning("⚠️ API keys not found in secrets. Using demo mode.")
+            self.alpha_vantage_key = "demo"
+            self.fred_api_key = "demo"
+        
         # Free API endpoints
-        self.alpha_vantage_key = "OQGPZCN799EA6HM0"  # Your actual API key
         self.world_bank_base = "https://api.worldbank.org/v2"
-        self.rbi_base = "https://rbi.org.in/Scripts/PublicationsView.aspx"
         
         # Initialize session state
         if 'live_data_loaded' not in st.session_state:
@@ -81,7 +88,7 @@ class IndiaEconomicFactorsTracker:
             url = f"https://api.stlouisfed.org/fred/series/observations"
             params = {
                 'series_id': series_id,
-                'api_key': 'd78cb1ab1397472cea93e824dc8783e0',  # Your actual FRED API key
+                'api_key': _self.fred_api_key,
                 'file_type': 'json',
                 'limit': 100,
                 'sort_order': 'desc'
