@@ -5,6 +5,11 @@
 .env
 *.env
 
+# API Keys and credentials
+config.py
+credentials.json
+api_keys.txt
+
 # Python
 __pycache__/
 *.pyc
@@ -14,16 +19,32 @@ __pycache__/
 env/
 venv/
 .venv/
+pip-log.txt
+pip-delete-this-directory.txt
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Logs
 *.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Cache
+.cache/
