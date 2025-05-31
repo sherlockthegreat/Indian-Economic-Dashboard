@@ -1,37 +1,40 @@
 # India Economic Factors Dashboard
 
-A comprehensive real-time dashboard for tracking India's micro and macro economic factors with live API integration.
+A comprehensive real-time dashboard for tracking India's micro and macro economic factors with live API integration and commodity futures.
 
 ## Features
 
-- 📈 **Real-time Economic Data**: Live integration with Alpha Vantage and FRED APIs
-- 📊 **Market Indices**: Nifty 50, Sensex with current values
-- 🥇 **Commodities**: Gold, Silver, Crude Oil prices
-- 💱 **Currency**: USD/INR exchange rates
-- 📅 **Historical Analysis**: Multiple time period analysis (0-3 months, 3-6 months, 6-9 months, 1+ year)
-- 🔄 **Intelligent Fallbacks**: Continues working even when APIs are down
+- 📈 **Real-time Economic Data**: Live integration with Yahoo Finance, Alpha Vantage, and World Bank APIs
+- 📊 **Market Indices**: Nifty 50, Sensex with live Yahoo Finance data
+- 🥇 **Commodity Futures**: Gold (XAUUSD), Silver (XAGUSD), Crude Oil, Agricultural commodities
+- 💱 **Currency**: USD/INR live exchange rates
+- 📅 **Historical Analysis**: Multiple time period analysis
+- 🔄 **Weekend Handling**: Shows last trading day prices when markets are closed
 - 📊 **Interactive Charts**: Plotly-powered visualizations
 - 🔌 **API Monitoring**: Real-time API status and usage tracking
 
-## Current Data Includes
+## Current Data (May 31, 2025)
 
 ### Economic Indicators
-- Inflation Rate (CPI)
-- GDP Growth Rate
-- Unemployment Rate
-- RBI Repo Rate
-- 10-Year Bond Yield
-- Foreign Exchange Reserves
+- **Inflation Rate**: 3.16% (6-year low, April 2025)
+- **GDP Growth**: 6.5% (FY 2024-25)
+- **Unemployment**: 5.1% (First monthly survey, April 2025)
+- **Repo Rate**: 6.0% (After RBI cuts, April 2025)
+- **10Y Bond Yield**: 6.18% (3-year low, May 30, 2025)
 
 ### Market Data
-- Nifty 50: 24,750.70
-- Sensex: 81,583.82
-- USD/INR: ₹83.63
+- **Nifty 50**: Live from Yahoo Finance (^NSEI)
+- **Sensex**: Live from Yahoo Finance (^BSESN)
+- **USD/INR**: Live from Yahoo Finance (USDINR=X)
 
-### Commodities
-- Gold: $2,353/oz
-- Silver: $29.35/oz
-- Crude Oil: $77.91/bbl
+### Commodity Futures (Correct Symbols)
+- **Gold**: $3,289.70 (XAUUSD=X)
+- **Silver**: $32.98 (XAGUSD=X)
+- **Crude Oil**: WTI Futures (CL=F)
+- **Sugar**: Futures (SB=F)
+- **Coffee**: Futures (KC=F)
+- **Wheat**: Futures (ZW=F)
+- **Corn**: Futures (ZC=F)
 
 ## Setup Instructions
 
