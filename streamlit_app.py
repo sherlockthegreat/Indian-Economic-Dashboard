@@ -49,8 +49,7 @@ class EconomicDataHandler:
         # Cryptocurrencies
         self.crypto_symbols = {
             'Bitcoin': 'BTC-USD',
-            'Ethereum': 'ETH-USD',
-            'Binance Coin': 'BNB-USD'
+            'Ethereum': 'ETH-USD'
         }
         
         # Economic indicators (manual updates)
@@ -59,7 +58,7 @@ class EconomicDataHandler:
             'gdp_growth': 6.5,      # FY 2024-25
             'unemployment': 5.1,    # April 2025
             'repo_rate': 6.0,       # RBI May 2025
-            'bond_yield': 6.18      # 10Y May 30
+            'bond_yield': 7.0       # Current
         }
 
     def is_weekend(self):
@@ -115,8 +114,7 @@ class EconomicDataHandler:
                         'JPY/INR': 0.56,
                         'AUD/INR': 56.78,
                         'Bitcoin': 67500.0,
-                        'Ethereum': 3850.0,
-                        'Binance Coin': 590.0
+                        'Ethereum': 3850.0
                     }
                     
                     data[name] = {
@@ -149,7 +147,9 @@ class DashboardBuilder:
     def display_economic_indicators(self):
         """Show core economic indicators"""
         st.subheader("📊 Core Economic Indicators")
-        col1, col2, col3, col4 = st.columns(4)
+        
+        # First row for Inflation, GDP Growth, Unemployment Rate
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.metric(
@@ -169,11 +169,21 @@ class DashboardBuilder:
                 f"{self.data_handler.economic_data['unemployment']}%",
                 "April 2025"
             )
+            
+        # Second row for Repo Rate, 10Y Bond Yield
+        col4, col5, _ = st.columns(3) # Use 3 columns but only populate two
+
         with col4:
             st.metric(
                 "Repo Rate",
                 f"{self.data_handler.economic_data['repo_rate']}%",
                 "RBI May 2025"
+            )
+        with col5:
+            st.metric(
+                "10Y Bond Yield",
+                f"{self.data_handler.economic_data['bond_yield']}%",
+                "Current"
             )
 
     def display_market_section(self, data, title, period_label):
@@ -190,7 +200,7 @@ class DashboardBuilder:
                 # Format value based on asset type
                 if 'INR' in name or name == 'USD/INR':
                     value_str = f"₹{values['current']:.2f}"
-                elif name in ['Bitcoin', 'Ethereum', 'Binance Coin']:
+                elif name in ['Bitcoin', 'Ethereum']:
                     value_str = f"${values['current']:,.0f}"
                 elif name == 'Crude Oil':
                     value_str = f"${values['current']:.2f}/bbl"
@@ -214,14 +224,15 @@ class DashboardBuilder:
             return
             
         fig = go.Figure()
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
         
-        for name, values in data.items():
+        for idx, (name, values) in enumerate(data.items()):
             if not values['history'].empty and len(values['history']) > 1:
                 fig.add_trace(go.Scatter(
                     x=values['history'].index,
                     y=values['history']['Close'],
                     name=name,
-                    line=dict(width=2),
+                    line=dict(width=2, color=colors[idx % len(colors)]),
                     hovertemplate=f"{name}: %{{y:.2f}}<br>Date: %{{x}}<extra></extra>"
                 ))
         
@@ -232,7 +243,10 @@ class DashboardBuilder:
                 yaxis_title="Price",
                 height=400,
                 showlegend=True,
-                hovermode='x unified'
+                hovermode='x unified',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#E0E0E0')
             )
             st.plotly_chart(fig, use_container_width=True)
 
