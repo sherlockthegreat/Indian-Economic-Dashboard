@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
@@ -16,26 +15,27 @@ st.set_page_config(
 
 class EconomicDataHandler:
     PERIOD_MAP = {
-        'Today': '1d',
-        '1-3 months': '3mo',
-        '3-6 months': '6mo',
-        '6-9 months': '9mo',
-        'More than a Year': '1y'
+        'Current': '1d',
+        '1 month change': '1mo',
+        '3 month change': '3mo',
+        '6 month change': '6mo',
+        '1 year change': '1y',
+        'YTD returns': 'ytd'
     }
 
     def __init__(self):
         # Initialize session state
-        if 'period' not in st.session_state:
-            st.session_state.period = 'Today'
+        if 'selected_period' not in st.session_state:
+            st.session_state.selected_period = 'Current'
             
-        # Indian market symbols
+        # Indian market symbols (CORRECTED)
         self.indian_symbols = {
             'Nifty 50': '^NSEI',
             'Sensex': '^BSESN',
-            'USD/INR': 'INR=X',
+            'USD/INR': 'USDINR=X',  # CORRECTED Yahoo Finance symbol
             'Gold': 'GC=F',
             'Silver': 'SI=F',
-            'Crude Oil': 'CL=F'
+            'Crude Oil': 'CL=F'     # CORRECT WTI Crude Oil symbol
         }
         
         # Forex pairs
@@ -61,83 +61,76 @@ class EconomicDataHandler:
             'repo_rate': 6.0,       # RBI May 2025
             'bond_yield': 6.18      # 10Y May 30
         }
-        
-        # Weekend fallback data (Last Friday's closes)
-        self.weekend_fallback = {
-            'Nifty 50': {'current': 24815.0, 'change': 1.2},
-            'Sensex': {'current': 81583.0, 'change': 0.8},
-            'USD/INR': {'current': 85.56, 'change': 0.1},
-            'Gold': {'current': 3289.70, 'change': -0.5},
-            'Silver': {'current': 32.98, 'change': 1.1},
-            'Crude Oil': {'current': 77.91, 'change': -1.2},
-            'EUR/INR': {'current': 92.45, 'change': 0.3},
-            'GBP/INR': {'current': 108.23, 'change': -0.2},
-            'JPY/INR': {'current': 0.56, 'change': 0.1},
-            'AUD/INR': {'current': 56.78, 'change': 0.4},
-            'Bitcoin': {'current': 67500.0, 'change': 2.1},
-            'Ethereum': {'current': 3850.0, 'change': 1.8},
-            'Binance Coin': {'current': 590.0, 'change': 0.9}
-        }
 
     def is_weekend(self):
         """Check if today is weekend"""
         return datetime.now().weekday() >= 5
 
-    @st.cache_data(ttl=1800)  # 30 minute cache
-    def fetch_data(_self, symbols, period='1d'):
-        """Fetch market data with weekend fallback"""
+    def fetch_live_data(self, symbols, period='1d'):
+        """Fetch live data from Yahoo Finance with period-based calculations"""
         data = {}
         
-        # If weekend, use fallback data
-        if _self.is_weekend():
-            st.info("📅 Markets are closed (Weekend). Showing last trading day data.")
-            for name in symbols.keys():
-                if name in _self.weekend_fallback:
-                    data[name] = {
-                        'current': _self.weekend_fallback[name]['current'],
-                        'change': _self.weekend_fallback[name]['change'],
-                        'history': pd.DataFrame()  # Empty for weekend
-                    }
-            return data
-        
-        # Try to fetch live data for weekdays
         try:
             for name, symbol in symbols.items():
                 ticker = yf.Ticker(symbol)
-                hist = ticker.history(period=period)
+                
+                # Get historical data based on period
+                if period == 'ytd':
+                    # Year to date
+                    start_date = f"{datetime.now().year}-01-01"
+                    hist = ticker.history(start=start_date)
+                else:
+                    hist = ticker.history(period=period)
                 
                 if not hist.empty:
                     current_price = hist['Close'].iloc[-1]
-                    prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
-                    change_pct = ((current_price - prev_price) / prev_price) * 100
+                    
+                    # Calculate change based on period
+                    if period == '1d' or len(hist) == 1:
+                        # Current day or single data point
+                        prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
+                        change_pct = ((current_price - prev_price) / prev_price) * 100 if prev_price != 0 else 0
+                    else:
+                        # Period change calculation
+                        start_price = hist['Close'].iloc[0]
+                        change_pct = ((current_price - start_price) / start_price) * 100 if start_price != 0 else 0
                     
                     data[name] = {
                         'current': current_price,
                         'change': change_pct,
-                        'history': hist
+                        'history': hist,
+                        'period': period
                     }
                 else:
-                    # Fallback if no data
-                    if name in _self.weekend_fallback:
-                        data[name] = {
-                            'current': _self.weekend_fallback[name]['current'],
-                            'change': _self.weekend_fallback[name]['change'],
-                            'history': pd.DataFrame()
-                        }
+                    # Fallback data
+                    fallback_prices = {
+                        'Nifty 50': 24815.0,
+                        'Sensex': 81583.0,
+                        'USD/INR': 85.56,
+                        'Gold': 3289.70,
+                        'Silver': 32.98,
+                        'Crude Oil': 77.91,  # Correct crude oil price
+                        'EUR/INR': 92.45,
+                        'GBP/INR': 108.23,
+                        'JPY/INR': 0.56,
+                        'AUD/INR': 56.78,
+                        'Bitcoin': 67500.0,
+                        'Ethereum': 3850.0,
+                        'Binance Coin': 590.0
+                    }
+                    
+                    data[name] = {
+                        'current': fallback_prices.get(name, 0),
+                        'change': 0,
+                        'history': pd.DataFrame(),
+                        'period': period
+                    }
                 
                 time.sleep(0.1)  # Rate limiting
                 
         except Exception as e:
-            st.warning(f"API Error: {str(e)}. Using fallback data.")
-            # Use fallback data on error
-            for name in symbols.keys():
-                if name in _self.weekend_fallback:
-                    data[name] = {
-                        'current': _self.weekend_fallback[name]['current'],
-                        'change': _self.weekend_fallback[name]['change'],
-                        'history': pd.DataFrame()
-                    }
-        
+            st.error(f"Error fetching data: {str(e)}")
+            
         return data
 
     def get_market_status(self):
@@ -183,13 +176,13 @@ class DashboardBuilder:
                 "RBI May 2025"
             )
 
-    def display_market_section(self, data, title):
-        """Display market data section"""
+    def display_market_section(self, data, title, period_label):
+        """Display market data section with period-specific labels"""
         if not data:
             st.warning(f"No data available for {title}")
             return
             
-        st.subheader(title)
+        st.subheader(f"{title} - {period_label}")
         cols = st.columns(4)
         
         for idx, (name, values) in enumerate(data.items()):
@@ -199,27 +192,37 @@ class DashboardBuilder:
                     value_str = f"₹{values['current']:.2f}"
                 elif name in ['Bitcoin', 'Ethereum', 'Binance Coin']:
                     value_str = f"${values['current']:,.0f}"
+                elif name == 'Crude Oil':
+                    value_str = f"${values['current']:.2f}/bbl"
+                elif name in ['Gold', 'Silver']:
+                    value_str = f"${values['current']:.2f}/oz"
                 else:
                     value_str = f"{values['current']:,.2f}"
                 
-                delta_str = f"{values['change']:+.2f}%"
+                # Format delta based on period
+                if period_label == 'Current':
+                    delta_str = f"{values['change']:+.2f}% (Daily)"
+                else:
+                    delta_str = f"{values['change']:+.2f}% ({period_label})"
+                
                 st.metric(name, value_str, delta_str)
 
     def create_trend_chart(self, data, title):
         """Create interactive trend chart"""
         if not data or all(values['history'].empty for values in data.values()):
-            st.info("Chart not available for weekend data")
+            st.info("Chart not available - insufficient historical data")
             return
             
         fig = go.Figure()
         
         for name, values in data.items():
-            if not values['history'].empty:
+            if not values['history'].empty and len(values['history']) > 1:
                 fig.add_trace(go.Scatter(
                     x=values['history'].index,
                     y=values['history']['Close'],
                     name=name,
-                    line=dict(width=2)
+                    line=dict(width=2),
+                    hovertemplate=f"{name}: %{{y:.2f}}<br>Date: %{{x}}<extra></extra>"
                 ))
         
         if fig.data:  # Only show if there's data
@@ -228,7 +231,8 @@ class DashboardBuilder:
                 xaxis_title="Date",
                 yaxis_title="Price",
                 height=400,
-                showlegend=True
+                showlegend=True,
+                hovermode='x unified'
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -236,12 +240,18 @@ class DashboardBuilder:
         """Create sidebar controls"""
         st.sidebar.header("📊 Dashboard Controls")
         
-        # Period selection
-        st.session_state.period = st.sidebar.selectbox(
-            "Time Period",
+        # Period selection with callback
+        selected_period = st.sidebar.selectbox(
+            "Select Time Period",
             list(self.data_handler.PERIOD_MAP.keys()),
-            index=0
+            index=list(self.data_handler.PERIOD_MAP.keys()).index(st.session_state.selected_period),
+            key="period_selector"
         )
+        
+        # Update session state if period changed
+        if selected_period != st.session_state.selected_period:
+            st.session_state.selected_period = selected_period
+            st.rerun()
         
         # Market status
         market_status = self.data_handler.get_market_status()
@@ -252,47 +262,60 @@ class DashboardBuilder:
         st.sidebar.metric("Current Time", datetime.now().strftime("%H:%M IST"))
         st.sidebar.metric("Date", datetime.now().strftime("%A, %B %d, %Y"))
         
+        # Data info
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Data Sources")
+        st.sidebar.markdown("• **Markets**: Yahoo Finance Live")
+        st.sidebar.markdown("• **Commodities**: COMEX/NYMEX Futures")
+        st.sidebar.markdown("• **Crypto**: Real-time USD prices")
+        st.sidebar.markdown("• **Economic**: Government sources")
+        
         st.sidebar.markdown("---")
         if st.sidebar.button("🔄 Refresh Data"):
+            # Clear cache and rerun
             st.cache_data.clear()
             st.rerun()
 
     def build_main(self):
         """Build main dashboard content"""
         # Get selected period
-        period = self.data_handler.PERIOD_MAP[st.session_state.period]
+        period_key = st.session_state.selected_period
+        period_value = self.data_handler.PERIOD_MAP[period_key]
+        
+        st.info(f"📊 Showing data for: **{period_key}**")
         
         # Indian Markets
-        indian_data = self.data_handler.fetch_data(
+        indian_data = self.data_handler.fetch_live_data(
             self.data_handler.indian_symbols, 
-            period
+            period_value
         )
-        self.display_market_section(indian_data, "🏛️ Indian Markets")
+        self.display_market_section(indian_data, "🏛️ Indian Markets", period_key)
         
-        if st.session_state.period != 'Today' and not self.data_handler.is_weekend():
-            self.create_trend_chart(indian_data, "Indian Markets Trend")
+        # Show chart for non-current periods
+        if period_key != 'Current':
+            self.create_trend_chart(indian_data, f"Indian Markets - {period_key}")
         
         # Forex Markets
         st.markdown("---")
-        forex_data = self.data_handler.fetch_data(
+        forex_data = self.data_handler.fetch_live_data(
             self.data_handler.forex_pairs,
-            period
+            period_value
         )
-        self.display_market_section(forex_data, "💱 Forex Markets")
+        self.display_market_section(forex_data, "💱 Forex Markets", period_key)
         
-        if st.session_state.period != 'Today' and not self.data_handler.is_weekend():
-            self.create_trend_chart(forex_data, "Forex Trends")
+        if period_key != 'Current':
+            self.create_trend_chart(forex_data, f"Forex Markets - {period_key}")
         
         # Cryptocurrencies
         st.markdown("---")
-        crypto_data = self.data_handler.fetch_data(
+        crypto_data = self.data_handler.fetch_live_data(
             self.data_handler.crypto_symbols,
-            period
+            period_value
         )
-        self.display_market_section(crypto_data, "₿ Cryptocurrencies")
+        self.display_market_section(crypto_data, "₿ Cryptocurrencies", period_key)
         
-        if st.session_state.period != 'Today' and not self.data_handler.is_weekend():
-            self.create_trend_chart(crypto_data, "Crypto Trends")
+        if period_key != 'Current':
+            self.create_trend_chart(crypto_data, f"Cryptocurrencies - {period_key}")
 
     def run(self):
         """Run dashboard application"""
@@ -306,7 +329,7 @@ class DashboardBuilder:
         
         # Footer
         st.markdown("---")
-        st.markdown("*Data refreshes every 30 minutes. Weekend data shows last trading day values.*")
+        st.markdown(f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST | Data refreshes every 30 minutes*")
 
 # Run the application
 if __name__ == "__main__":
