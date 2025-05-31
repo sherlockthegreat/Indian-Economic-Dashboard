@@ -1,34 +1,18 @@
-# Streamlit secrets
-.streamlit/secrets.toml
-
-# Environment variables
-.env
-*.env
-
-# API Keys and credentials
-config.py
-credentials.json
-api_keys.txt
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env/
-venv/
+.env
 .venv/
+venv/
+
+# Streamlit
+.secrets.toml
 
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
 
 # OS
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
