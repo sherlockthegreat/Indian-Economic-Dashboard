@@ -34,17 +34,15 @@ class ComprehensiveDataFetcher:
         # API endpoints
         self.alpha_vantage_base = "https://www.alphavantage.co/query"
         self.fred_base = "https://api.stlouisfed.org/fred"
-        self.rbi_base = "https://data.rbi.org.in/api"
         self.world_bank_base = "https://api.worldbank.org/v2"
         
         # Rate limiting
         self.last_api_call = {}
         self.api_intervals = {
-            'alpha': 12,  # 5 calls per minute
-            'fred': 1,    # More generous
-            'yahoo': 0.1, # Very generous
-            'worldbank': 1,
-            'rbi': 2
+            'alpha': 12,
+            'fred': 1,
+            'yahoo': 0.1,
+            'worldbank': 1
         }
         
         # Initialize session state
@@ -67,9 +65,9 @@ class ComprehensiveDataFetcher:
         
         self.last_api_call[api_type] = time.time()
 
-    @st.cache_data(ttl=3600)  # Cache for 1 hour
+    @st.cache_data(ttl=1800)  # Cache for 30 minutes
     def get_yahoo_finance_data(_self):
-        """Get Indian market data from Yahoo Finance (Most Reliable)"""
+        """Get Indian market data from Yahoo Finance"""
         try:
             _self.rate_limit_check('yahoo')
             
@@ -93,19 +91,47 @@ class ComprehensiveDataFetcher:
             if not usdinr_hist.empty:
                 data['exchange_rate'] = float(usdinr_hist['Close'].iloc[-1])
             
-            # Get Gold (Gold ETF in India)
-            gold_etf = yf.Ticker("GOLDBEES.NS")
-            gold_hist = gold_etf.history(period="2d")
-            if not gold_hist.empty:
-                # Convert to USD/oz equivalent (approximate)
-                gold_inr_per_gram = float(gold_hist['Close'].iloc[-1])
-                data['gold'] = gold_inr_per_gram * 31.1035 / data.get('exchange_rate', 83)  # Convert to USD/oz
-            
-            st.session_state.api_usage['yahoo_calls'] += 1
+            st.session_state.api_usage['yahoo_calls'] += 3
             return data
             
         except Exception as e:
-            st.warning(f"Yahoo Finance error: {str(e)}")
+            st.warning(f"Yahoo Finance market data error: {str(e)}")
+            return {}
+
+    @st.cache_data(ttl=1800)  # Cache for 30 minutes
+    def get_yahoo_commodity_futures(_self):
+        """Get commodity futures prices from Yahoo Finance"""
+        try:
+            _self.rate_limit_check('yahoo')
+            
+            commodities = {
+                'gold': 'GC=F',      # Gold Futures
+                'silver': 'SI=F',    # Silver Futures
+                'crude_oil': 'CL=F', # WTI Crude Oil Futures
+                'sugar': 'SB=F',     # Sugar Futures
+                'coffee': 'KC=F',    # Coffee Futures
+                'wheat': 'ZW=F',     # Wheat Futures
+                'corn': 'ZC=F'       # Corn Futures
+            }
+            
+            prices = {}
+            
+            for commodity, symbol in commodities.items():
+                try:
+                    ticker = yf.Ticker(symbol)
+                    hist = ticker.history(period='2d')
+                    if not hist.empty:
+                        prices[commodity] = float(hist['Close'].iloc[-1])
+                    time.sleep(0.1)  # Rate limiting
+                except Exception as e:
+                    st.warning(f"Error fetching {commodity}: {str(e)}")
+                    continue
+            
+            st.session_state.api_usage['yahoo_calls'] += len(commodities)
+            return prices
+            
+        except Exception as e:
+            st.warning(f"Yahoo Finance commodities error: {str(e)}")
             return {}
 
     @st.cache_data(ttl=86400)  # Cache for 24 hours
@@ -125,7 +151,6 @@ class ComprehensiveDataFetcher:
             if response.status_code == 200:
                 data = response.json()
                 if len(data) > 1 and data[1]:
-                    # Get the most recent non-null value
                     for item in data[1]:
                         if item['value'] is not None:
                             return float(item['value'])
@@ -135,140 +160,66 @@ class ComprehensiveDataFetcher:
             st.warning(f"World Bank API error: {str(e)}")
             return None
 
-    @st.cache_data(ttl=3600)
-    def get_alpha_vantage_commodities(_self):
-        """Get commodity data from Alpha Vantage"""
-        try:
-            _self.rate_limit_check('alpha')
-            
-            data = {}
-            
-            # Gold
-            params = {
-                'function': 'CURRENCY_EXCHANGE_RATE',
-                'from_currency': 'XAU',
-                'to_currency': 'USD',
-                'apikey': _self.alpha_vantage_key
-            }
-            
-            response = requests.get(_self.alpha_vantage_base, params=params, timeout=10)
-            if response.status_code == 200:
-                result = response.json()
-                if "Realtime Currency Exchange Rate" in result:
-                    data['gold'] = float(result["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
-            
-            time.sleep(12)  # Rate limiting
-            
-            # Silver
-            params['from_currency'] = 'XAG'
-            response = requests.get(_self.alpha_vantage_base, params=params, timeout=10)
-            if response.status_code == 200:
-                result = response.json()
-                if "Realtime Currency Exchange Rate" in result:
-                    data['silver'] = float(result["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
-            
-            st.session_state.api_usage['alpha_calls'] += 2
-            return data
-            
-        except Exception as e:
-            st.warning(f"Alpha Vantage commodities error: {str(e)}")
-            return {}
-
-    @st.cache_data(ttl=86400)
-    def get_fred_economic_data(_self):
-        """Get US economic data from FRED for reference"""
-        try:
-            _self.rate_limit_check('fred')
-            
-            data = {}
-            
-            # US GDP Growth (for reference)
-            params = {
-                'series_id': 'GDPC1',
-                'api_key': _self.fred_api_key,
-                'file_type': 'json',
-                'limit': 5,
-                'sort_order': 'desc'
-            }
-            
-            response = requests.get(f"{_self.fred_base}/series/observations", params=params, timeout=10)
-            if response.status_code == 200:
-                result = response.json()
-                if 'observations' in result:
-                    for obs in result['observations']:
-                        if obs['value'] != '.':
-                            data['us_gdp_reference'] = float(obs['value'])
-                            break
-            
-            st.session_state.api_usage['fred_calls'] += 1
-            return data
-            
-        except Exception as e:
-            st.warning(f"FRED API error: {str(e)}")
-            return {}
-
     def get_current_accurate_data(self):
         """Get most accurate current data from multiple sources"""
-        # Start with corrected base data
+        # Start with corrected base data (May 31, 2025)
         data = {
-            # CORRECTED Economic indicators (as per May 31, 2025)
+            # CORRECTED Economic indicators
             'inflation_rate': 3.16,        # April 2025 actual
             'gdp_growth_rate': 6.5,        # FY 2024-25 revised
             'unemployment_rate': 5.1,      # April 2025 monthly survey
-            'interest_rate': 6.0,          # Current repo rate after cuts
+            'interest_rate': 6.0,          # Current repo rate
             'bond_yield_10y': 6.18,        # May 30, 2025 actual
-            'fiscal_deficit': 5.2,
+            'fiscal_deficit': 4.8,
             'foreign_reserves': 645.0,
             'industrial_production': 105.2,
             'consumer_price_index': 185.4,
             'current_account_balance': -1.8,
-            'crude_oil': 77.91,
             
             'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'data_sources': ['Government Data (May 2025)']
         }
         
         # Get live market data from Yahoo Finance
-        yahoo_data = self.get_yahoo_finance_data()
-        if yahoo_data:
-            data.update(yahoo_data)
-            data['data_sources'].append('Yahoo Finance (Live)')
+        yahoo_market_data = self.get_yahoo_finance_data()
+        if yahoo_market_data:
+            data.update(yahoo_market_data)
+            data['data_sources'].append('Yahoo Finance (Markets)')
         else:
             # Fallback market values
             data.update({
-                'exchange_rate': 85.56,     # May 30, 2025 actual
-                'nifty': 24750.70,
-                'sensex': 81583.82
+                'exchange_rate': 85.29,
+                'nifty': 24815.0,
+                'sensex': 81570.0
             })
         
-        # Get commodities from Alpha Vantage
-        commodity_data = self.get_alpha_vantage_commodities()
-        if commodity_data:
-            data.update(commodity_data)
-            data['data_sources'].append('Alpha Vantage (Commodities)')
+        # Get live commodity data from Yahoo Finance
+        yahoo_commodities = self.get_yahoo_commodity_futures()
+        if yahoo_commodities:
+            data.update(yahoo_commodities)
+            data['data_sources'].append('Yahoo Finance (Commodities)')
         else:
             # Fallback commodity values
             data.update({
-                'gold': 2353.0,
-                'silver': 29.35
+                'gold': 2780.0,
+                'silver': 32.5,
+                'crude_oil': 63.90,
+                'sugar': 17.0,
+                'coffee': 340.0,
+                'wheat': 530.0,
+                'corn': 440.0
             })
         
         # Get World Bank economic data
         wb_inflation = self.get_world_bank_data("FP.CPI.TOTL.ZG")
-        if wb_inflation and 0 <= wb_inflation <= 15:  # Sanity check
+        if wb_inflation and 0 <= wb_inflation <= 15:
             data['inflation_rate'] = wb_inflation
             data['data_sources'].append('World Bank (Inflation)')
         
         wb_gdp = self.get_world_bank_data("NY.GDP.MKTP.KD.ZG")
-        if wb_gdp and 0 <= wb_gdp <= 15:  # Sanity check
+        if wb_gdp and 0 <= wb_gdp <= 15:
             data['gdp_growth_rate'] = wb_gdp
             data['data_sources'].append('World Bank (GDP)')
-        
-        # Get FRED reference data
-        fred_data = self.get_fred_economic_data()
-        if fred_data:
-            data.update(fred_data)
-            data['data_sources'].append('FRED (US Reference)')
         
         # Final data source summary
         data['data_source'] = f"Multi-source: {', '.join(set(data['data_sources']))}"
@@ -302,8 +253,6 @@ class IndiaEconomicFactorsTracker:
         for source in sources:
             if 'Yahoo Finance' in source:
                 st.sidebar.success(f"🟢 {source}")
-            elif 'Alpha Vantage' in source:
-                st.sidebar.info(f"🔵 {source}")
             elif 'World Bank' in source:
                 st.sidebar.info(f"🌍 {source}")
             else:
@@ -325,7 +274,6 @@ class IndiaEconomicFactorsTracker:
         # API usage
         usage = st.session_state.get('api_usage', {})
         st.sidebar.metric("Yahoo Calls", usage.get('yahoo_calls', 0))
-        st.sidebar.metric("Alpha Calls", f"{usage.get('alpha_calls', 0)}/500")
 
     def generate_historical_data(self, current_data):
         """Generate historical data based on current values"""
@@ -370,12 +318,12 @@ class IndiaEconomicFactorsTracker:
                 70000, 85000
             ),
             'gold': np.clip(
-                current_data['gold'] + np.random.normal(0, 100, len(dates)), 
-                2200, 2500
+                current_data['gold'] + np.random.normal(0, 200, len(dates)), 
+                2500, 3500
             ),
-            'silver': np.clip(
-                current_data['silver'] + np.random.normal(0, 3, len(dates)), 
-                25, 35
+            'crude_oil': np.clip(
+                current_data['crude_oil'] + np.random.normal(0, 10, len(dates)), 
+                50, 90
             )
         })
         
@@ -394,7 +342,7 @@ class IndiaEconomicFactorsTracker:
         return df[(df['date'] >= start_date) & (df['date'] <= end_date)]
 
     def create_live_metrics_dashboard(self):
-        """Create the enhanced dashboard with accurate data"""
+        """Create the enhanced dashboard with live commodity data"""
         st.title("🇮🇳 India Economic Factors - Enhanced Live Dashboard")
         
         # Fetch comprehensive data
@@ -410,7 +358,7 @@ class IndiaEconomicFactorsTracker:
         with col_info2:
             st.caption(f"🕒 Updated: {current_data['last_updated']} IST")
         
-        # Economic Indicators (CORRECTED VALUES)
+        # Economic Indicators
         st.subheader("📈 Economic Indicators (Accurate Data)")
         col1, col2, col3, col4 = st.columns(4)
         
@@ -427,7 +375,7 @@ class IndiaEconomicFactorsTracker:
             st.metric("💰 Repo Rate", f"{current_data['interest_rate']:.2f}%", 
                      "After cuts", help="RBI Policy Rate - April 2025")
         
-        # Market Indices (LIVE DATA)
+        # Market Indices
         st.subheader("📊 Market Indices & Currency (Live Data)")
         col5, col6, col7, col8 = st.columns(4)
         
@@ -447,37 +395,108 @@ class IndiaEconomicFactorsTracker:
             st.metric("📊 10Y Bond", f"{current_data['bond_yield_10y']:.2f}%", 
                      "3-year low", help="Government Bond Yield - May 30, 2025")
         
-        # Commodities (LIVE DATA)
-        st.subheader("🥇 Commodities (Live Prices)")
+        # Commodities Section (Enhanced with more commodities)
+        st.subheader("🥇 Live Commodity Futures (Yahoo Finance)")
+        
+        # Row 1: Precious Metals & Energy
         col9, col10, col11, col12 = st.columns(4)
         
         with col9:
-            gold_change = (current_data['gold'] - 2350) / 2350 * 100
-            st.metric("🥇 Gold", f"${current_data['gold']:,.0f}", 
-                     f"{gold_change:.2f}%", help="Live gold price per ounce")
+            gold_change = (current_data['gold'] - 2700) / 2700 * 100
+            st.metric("🥇 Gold Futures", f"${current_data['gold']:,.0f}", 
+                     f"{gold_change:.2f}%", help="GC=F - Gold Futures per ounce")
         with col10:
-            silver_change = (current_data['silver'] - 29) / 29 * 100
-            st.metric("🥈 Silver", f"${current_data['silver']:.2f}", 
-                     f"{silver_change:.2f}%", help="Live silver price per ounce")
+            silver_change = (current_data['silver'] - 30) / 30 * 100
+            st.metric("🥈 Silver Futures", f"${current_data['silver']:.2f}", 
+                     f"{silver_change:.2f}%", help="SI=F - Silver Futures per ounce")
         with col11:
-            oil_change = (current_data['crude_oil'] - 78) / 78 * 100
-            st.metric("🛢️ Crude Oil", f"${current_data['crude_oil']:.2f}", 
-                     f"{oil_change:.2f}%", help="WTI Crude Oil per barrel")
+            oil_change = (current_data['crude_oil'] - 70) / 70 * 100
+            st.metric("🛢️ WTI Crude Oil", f"${current_data['crude_oil']:.2f}", 
+                     f"{oil_change:.2f}%", help="CL=F - WTI Crude Oil Futures per barrel")
         with col12:
             st.metric("🏦 Forex Reserves", f"${current_data['foreign_reserves']:.1f}B", 
                      "Billion USD", help="India's Foreign Exchange Reserves")
         
-        # Key Insights based on accurate data
+        # Row 2: Agricultural Commodities
+        st.subheader("🌾 Agricultural Commodity Futures")
+        col13, col14, col15, col16 = st.columns(4)
+        
+        with col13:
+            sugar_change = (current_data['sugar'] - 16) / 16 * 100
+            st.metric("🍯 Sugar Futures", f"${current_data['sugar']:.2f}", 
+                     f"{sugar_change:.2f}%", help="SB=F - Sugar Futures per pound")
+        with col14:
+            coffee_change = (current_data['coffee'] - 320) / 320 * 100
+            st.metric("☕ Coffee Futures", f"${current_data['coffee']:.0f}", 
+                     f"{coffee_change:.2f}%", help="KC=F - Coffee Futures per pound")
+        with col15:
+            wheat_change = (current_data['wheat'] - 500) / 500 * 100
+            st.metric("🌾 Wheat Futures", f"${current_data['wheat']:.0f}", 
+                     f"{wheat_change:.2f}%", help="ZW=F - Wheat Futures per bushel")
+        with col16:
+            corn_change = (current_data['corn'] - 420) / 420 * 100
+            st.metric("🌽 Corn Futures", f"${current_data['corn']:.0f}", 
+                     f"{corn_change:.2f}%", help="ZC=F - Corn Futures per bushel")
+        
+        # Commodity Performance Chart
         st.markdown("---")
-        st.subheader("🎯 Key Economic Insights")
+        st.subheader("📊 Commodity Performance Overview")
+        
+        commodity_data = {
+            'Commodity': ['Gold', 'Silver', 'Crude Oil', 'Sugar', 'Coffee', 'Wheat', 'Corn'],
+            'Current Price': [
+                f"${current_data['gold']:,.0f}/oz",
+                f"${current_data['silver']:.2f}/oz",
+                f"${current_data['crude_oil']:.2f}/bbl",
+                f"${current_data['sugar']:.2f}/lb",
+                f"${current_data['coffee']:.0f}/lb",
+                f"${current_data['wheat']:.0f}/bu",
+                f"${current_data['corn']:.0f}/bu"
+            ],
+            'Change %': [
+                gold_change,
+                silver_change,
+                oil_change,
+                sugar_change,
+                coffee_change,
+                wheat_change,
+                corn_change
+            ]
+        }
+        
+        fig_commodities = go.Figure()
+        colors = ['green' if x > 0 else 'red' for x in commodity_data['Change %']]
+        
+        fig_commodities.add_trace(go.Bar(
+            x=commodity_data['Commodity'],
+            y=commodity_data['Change %'],
+            marker_color=colors,
+            text=[f"{x:.2f}%" for x in commodity_data['Change %']],
+            textposition='auto',
+        ))
+        
+        fig_commodities.update_layout(
+            title="Commodity Futures Performance (% Change from Base)",
+            xaxis_title="Commodities",
+            yaxis_title="Change (%)",
+            height=400,
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig_commodities, use_container_width=True)
+        
+        # Key Insights
+        st.markdown("---")
+        st.subheader("🎯 Key Economic & Market Insights")
         
         insights = [
-            f"📉 **Inflation at 6-year low**: CPI inflation at {current_data['inflation_rate']:.2f}% (April 2025), well below RBI's 4% target",
+            f"📉 **Inflation at 6-year low**: CPI inflation at {current_data['inflation_rate']:.2f}% (April 2025)",
             f"📈 **GDP Growth steady**: Economy growing at {current_data['gdp_growth_rate']:.1f}% for FY 2024-25",
-            f"💼 **Employment improving**: Unemployment rate at {current_data['unemployment_rate']:.1f}% based on first monthly job survey",
-            f"💰 **Monetary easing**: Repo rate at {current_data['interest_rate']:.1f}% after recent RBI cuts",
-            f"📊 **Bond yields declining**: 10-year yield at {current_data['bond_yield_10y']:.2f}%, near 3-year lows",
-            f"💵 **Rupee pressure**: USD/INR at ₹{current_data['exchange_rate']:.2f}, showing recent weakness"
+            f"💼 **Employment improving**: Unemployment rate at {current_data['unemployment_rate']:.1f}%",
+            f"💰 **Monetary easing**: Repo rate at {current_data['interest_rate']:.1f}% after RBI cuts",
+            f"🥇 **Gold rally**: Gold futures at ${current_data['gold']:,.0f}/oz, showing strength",
+            f"🛢️ **Oil stability**: WTI crude at ${current_data['crude_oil']:.2f}/barrel",
+            f"🌾 **Agricultural mixed**: Wheat at ${current_data['wheat']:.0f}/bu, Corn at ${current_data['corn']:.0f}/bu"
         ]
         
         for insight in insights:
@@ -515,12 +534,52 @@ class IndiaEconomicFactorsTracker:
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=macro_filtered['date'], y=macro_filtered['nifty'],
                                             mode='lines+markers', name='Nifty 50', line=dict(color='blue')))
-                    fig2.add_trace(go.Scatter(x=macro_filtered['date'], y=macro_filtered['exchange_rate'],
-                                            mode='lines+markers', name='USD/INR', line=dict(color='green'), yaxis='y2'))
+                    fig2.add_trace(go.Scatter(x=macro_filtered['date'], y=macro_filtered['gold'],
+                                            mode='lines+markers', name='Gold Price', line=dict(color='gold'), yaxis='y2'))
                     fig2.update_layout(title=f"Market Performance - {selected_period}", height=400,
                                      yaxis_title="Nifty 50", 
-                                     yaxis2=dict(title="USD/INR", overlaying='y', side='right'))
+                                     yaxis2=dict(title="Gold Price ($)", overlaying='y', side='right'))
                     st.plotly_chart(fig2, use_container_width=True)
+        
+        # Data Summary Table
+        st.markdown("---")
+        st.subheader("📋 Complete Data Summary")
+        
+        summary_data = {
+            'Category': [
+                'Economic', 'Economic', 'Economic', 'Economic',
+                'Market', 'Market', 'Market', 'Market',
+                'Precious Metals', 'Precious Metals', 'Energy', 'Agricultural',
+                'Agricultural', 'Agricultural', 'Agricultural', 'Other'
+            ],
+            'Indicator': [
+                'Inflation Rate (%)', 'GDP Growth (%)', 'Unemployment (%)', 'Repo Rate (%)',
+                'Nifty 50', 'Sensex', 'USD/INR', '10Y Bond Yield (%)',
+                'Gold ($/oz)', 'Silver ($/oz)', 'Crude Oil ($/bbl)', 'Sugar ($/lb)',
+                'Coffee ($/lb)', 'Wheat ($/bu)', 'Corn ($/bu)', 'Forex Reserves ($B)'
+            ],
+            'Current Value': [
+                f"{current_data['inflation_rate']:.2f}",
+                f"{current_data['gdp_growth_rate']:.1f}",
+                f"{current_data['unemployment_rate']:.1f}",
+                f"{current_data['interest_rate']:.2f}",
+                f"{current_data['nifty']:,.0f}",
+                f"{current_data['sensex']:,.0f}",
+                f"{current_data['exchange_rate']:.2f}",
+                f"{current_data['bond_yield_10y']:.2f}",
+                f"{current_data['gold']:,.0f}",
+                f"{current_data['silver']:.2f}",
+                f"{current_data['crude_oil']:.2f}",
+                f"{current_data['sugar']:.2f}",
+                f"{current_data['coffee']:.0f}",
+                f"{current_data['wheat']:.0f}",
+                f"{current_data['corn']:.0f}",
+                f"{current_data['foreign_reserves']:.1f}"
+            ]
+        }
+        
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
         
         # Refresh controls
         col_refresh1, col_refresh2 = st.columns(2)
@@ -534,27 +593,28 @@ class IndiaEconomicFactorsTracker:
                 st.success("Cache cleared!")
                 st.rerun()
         
-        # Enhanced Footer with data accuracy note
+        # Enhanced Footer
         st.markdown("---")
         st.markdown("""
         **📊 Enhanced India Economic Dashboard - May 31, 2025**
         
-        **✅ Accurate Current Data:**
+        **✅ Live Data Sources:**
+        - 📈 **Yahoo Finance**: Live market indices, currency, and commodity futures
+        - 🌍 **World Bank API**: Official economic indicators
+        - 🏛️ **Government Sources**: Accurate inflation, unemployment, and policy rates
+        
+        **🥇 Live Commodity Futures:**
+        - **Precious Metals**: Gold (GC=F), Silver (SI=F)
+        - **Energy**: WTI Crude Oil (CL=F)
+        - **Agricultural**: Sugar (SB=F), Coffee (KC=F), Wheat (ZW=F), Corn (ZC=F)
+        
+        **📊 Current Accurate Data:**
         - 🔥 **Inflation**: 3.16% (6-year low, April 2025)
         - 💼 **Unemployment**: 5.1% (First monthly survey, April 2025)
         - 💰 **Repo Rate**: 6.0% (After RBI cuts, April 2025)
         - 📊 **10Y Bond**: 6.18% (3-year low, May 30, 2025)
-        - 💵 **USD/INR**: Live rate from Yahoo Finance
-        - 🏛️ **Nifty/Sensex**: Real-time from Yahoo Finance
         
-        **🔌 Data Sources:**
-        - 📈 Yahoo Finance API (Live market data)
-        - 🌍 World Bank API (Economic indicators)
-        - 📊 Alpha Vantage API (Commodities)
-        - 🏦 FRED API (Reference data)
-        - 🏛️ Government sources (Official statistics)
-        
-        *Dashboard auto-refreshes every 30 minutes with multi-source validation*
+        *Dashboard auto-refreshes every 30 minutes with live commodity futures data*
         """)
 
 # Run the application
